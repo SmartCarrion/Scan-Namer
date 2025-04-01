@@ -20,6 +20,41 @@ The agent monitors a specified folder for files with default Microsoft Lens nami
 
 ## Setup
 
+### Prerequisites
+
+1. **Python 3.8+** - [Download Python](https://www.python.org/downloads/)
+
+2. **OpenAI API Key** - [Get it here](https://platform.openai.com/api-keys)
+
+3. **Poppler** (Required for PDF support):
+   
+   **Windows:**
+   1. Download the latest release from [poppler-windows](https://github.com/oschwartz10612/poppler-windows/releases/)
+   2. Extract the downloaded file
+   3. Move the extracted folder to `C:\Program Files\poppler` (or another location)
+   4. Add the `bin` folder to your PATH:
+      - Open System Properties (Win + Pause/Break)
+      - Click "Advanced system settings"
+      - Click "Environment Variables"
+      - Under System Variables, find and select "Path"
+      - Click "Edit"
+      - Click "New"
+      - Add the path (e.g., `C:\Program Files\poppler\Library\bin`)
+      - Click "OK" on all windows
+   5. Restart your terminal/IDE
+
+   **Mac:**
+   ```bash
+   brew install poppler
+   ```
+
+   **Linux:**
+   ```bash
+   sudo apt-get install poppler-utils  # Ubuntu/Debian
+   sudo yum install poppler-utils      # CentOS/RHEL
+   sudo pacman -S poppler              # Arch Linux
+   ```
+
 ### Automated Setup (Recommended)
 
 1. Run the setup script which will handle most of the setup steps:
@@ -185,6 +220,8 @@ Only files with the same extension (all JPGs or all PNGs) will be grouped togeth
 PDFs are always treated as standalone documents, since they can already contain multiple pages. Each PDF is analyzed and renamed individually based on its content, regardless of when it was created.
 
 For PDFs, the agent converts only the first page to an image for analysis by the AI model, then uses the resulting name suggestion for the entire PDF file.
+
+Note: PDF support requires Poppler to be installed. See the Prerequisites section above for installation instructions.
 
 ## Configuration
 
