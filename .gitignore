@@ -1,5 +1,7 @@
 # Environment variables
 .env
+.env.*
+!.env.example
 
 # Python cache
 __pycache__/
@@ -10,6 +12,7 @@ __pycache__/
 venv/
 .venv/
 env/
+ENV/
 
 # Distribution / packaging
 dist/
@@ -18,4 +21,14 @@ build/
 
 # Logs
 logs/
-*.log 
+*.log
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Operating System
+.DS_Store
+Thumbs.db 

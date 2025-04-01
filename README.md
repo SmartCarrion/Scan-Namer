@@ -6,6 +6,7 @@ Automatically renames scanned documents from Microsoft Lens (or similar apps) ba
 
 The agent monitors a specified folder for files with default Microsoft Lens naming patterns (e.g., `3_28_25, 12_51 PM Microsoft Lens.jpg`). When it finds such files, it analyzes their content using OpenAI's vision model (GPT-4o mini) and renames them to something more descriptive based on what's in the document.
 
+
 ## Features
 
 - Automatically detects new scans with default naming
@@ -77,6 +78,56 @@ If you're having trouble with virtual environments:
    ```
    python scan_agent.py
    ```
+   
+## Scanning Setup
+
+### Microsoft Lens Setup (Recommended)
+
+1. Install Microsoft Lens:
+   - [Android - Google Play Store](https://play.google.com/store/apps/details?id=com.microsoft.office.officelens)
+   - [iOS - App Store](https://apps.apple.com/us/app/microsoft-lens-pdf-scanner/id975925059)
+
+2. Configure OneDrive sync:
+   - Open Microsoft Lens
+   - Sign in with your Microsoft account
+   - Go to Settings > Cloud Storage
+   - Enable OneDrive sync
+   - Choose or create a folder for your scans (remember this path for later)
+
+3. Scanning Best Practices:
+   - Use good lighting
+   - Keep the camera steady
+   - Ensure the document is flat and fully visible
+   - For multi-page documents, use the "Add New" button between pages
+   - Choose "Document" mode for text documents
+   - Use "Photo" mode for images or colorful content
+   - Use "Whiteboard" mode for whiteboards or flipcharts
+
+### Alternative Scanning Apps
+
+You can use any scanning app that saves to a monitored folder. Some alternatives:
+- Adobe Scan
+- Scanner Pro
+- Your phone's built-in document scanner
+
+### OneDrive Setup
+
+1. Install OneDrive on your computer:
+   - [Download OneDrive](https://www.microsoft.com/en-us/microsoft-365/onedrive/download)
+2. Sign in with the same Microsoft account used in Microsoft Lens
+3. Ensure the scan folder is synced to your computer
+4. Use this local sync folder path in your `.env` configuration
+
+## Getting an OpenAI API Key
+
+1. Visit [OpenAI's Platform website](https://platform.openai.com/)
+2. Click "Sign Up" or "Log In"
+3. Go to [API Keys section](https://platform.openai.com/api-keys)
+4. Click "Create new secret key"
+5. Copy the key (you won't be able to see it again!)
+6. Add the key to your `.env` file
+
+Note: OpenAI API usage is not free, but the cost for renaming documents is typically very low (a few cents or less per document).
 
 ## Usage
 
@@ -118,12 +169,22 @@ The following command line options are available:
 
 ### Multi-page Documents
 
-The agent automatically detects when multiple files are scanned in sequence (within 60 seconds of each other) and treats them as pages of the same document. The files will be renamed with a consistent base name plus page numbers:
+#### Image Files (JPG, JPEG, PNG)
 
-For example, if you scan multiple pages of an invoice, they will be renamed to:
+The agent automatically detects when multiple image files are scanned in sequence (within 60 seconds of each other) and treats them as pages of the same document. The images will be renamed with a consistent base name plus page numbers:
+
+For example, if you scan multiple pages of an invoice as separate image files, they will be renamed to:
 - `Invoice_ABC_Company_page_01.jpg`
 - `Invoice_ABC_Company_page_02.jpg`
 - etc.
+
+Only files with the same extension (all JPGs or all PNGs) will be grouped together.
+
+#### PDF Files
+
+PDFs are always treated as standalone documents, since they can already contain multiple pages. Each PDF is analyzed and renamed individually based on its content, regardless of when it was created.
+
+For PDFs, the agent converts only the first page to an image for analysis by the AI model, then uses the resulting name suggestion for the entire PDF file.
 
 ## Configuration
 

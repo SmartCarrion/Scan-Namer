@@ -106,7 +106,7 @@ def setup_env_file():
         print("Creating default .env file...")
         default_env = (
             "OPENAI_API_KEY=\n"
-            "SCAN_FOLDER_PATH=C:/Users/imccl/OneDrive - Think On Labs LLC/Office Lens/\n"
+            "SCAN_FOLDER_PATH=C:/Path/To/Your/Scan/Folder\n"
             "CHECK_INTERVAL=60\n"
             "CONTINUOUS_MONITORING=False\n"
         )

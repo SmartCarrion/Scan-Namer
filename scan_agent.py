@@ -12,6 +12,7 @@ from typing import List, Optional, Dict, Any, Set
 import unicodedata
 import argparse
 import tempfile
+import sys
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -43,10 +44,12 @@ logger.addHandler(console_handler)
 logger.addHandler(file_handler)
 
 # Default filename pattern for Microsoft Lens
-# Format: "MM_DD_YY, HH_MM AM/PM Microsoft Lens.jpg"
-# Note: Handles regular spaces and Unicode narrow non-breaking spaces (\u202f)
+# Note: Handles multiple formats:
+# - "MM_DD_YY, HH_MM AM/PM Microsoft Lens.jpg"
+# - "MM_DD_YY, HH_MM AM/PM Microsoft Lens(N).jpg" (with number in parentheses)
+# - "MM_DD_YY, HH_MM AM/PM Microsoft Lens N.jpg" (with space and number)
 DEFAULT_FILENAME_PATTERN = re.compile(
-    r"^\d{1,2}_\d{1,2}_\d{1,2},?\s+\d{1,2}_\d{2}[\s\u202f]*(?:AM|PM)[\s\u202f]*Microsoft Lens(?:\(\d+\))?\.(jpg|jpeg|png|pdf)$",
+    r"^\d{1,2}_\d{1,2}_\d{1,2},?\s+\d{1,2}_\d{2}[\s\u202f]*(?:AM|PM)[\s\u202f]*Microsoft Lens(?:[\s]?\d+|\(\d+\))?\.(jpg|jpeg|png|pdf)$",
     re.IGNORECASE
 )
 
@@ -83,6 +86,24 @@ class ScanAgent:
         
         self.check_interval = int(os.getenv("CHECK_INTERVAL", "60"))
         self.continuous = os.getenv("CONTINUOUS_MONITORING", "False").lower() == "true"
+        
+        # Load Poppler path for PDF processing
+        self.poppler_path = os.getenv("POPPLER_PATH")
+        if self.poppler_path and Path(self.poppler_path).exists():
+            logger.info(f"Using custom Poppler path: {self.poppler_path}")
+        else:
+            # Try common Poppler paths on Windows
+            common_paths = [
+                r"C:\Program Files\poppler\bin",
+                r"C:\Program Files\poppler\Library\bin",
+                r"C:\poppler\bin"
+            ]
+            for path in common_paths:
+                if Path(path).exists():
+                    self.poppler_path = path
+                    logger.info(f"Found Poppler at: {self.poppler_path}")
+                    break
+        
         logger.debug(f"Config loaded: check_interval={self.check_interval}, continuous={self.continuous}")
 
     def _init_openai_client(self) -> None:
@@ -212,7 +233,19 @@ class ScanAgent:
             with tempfile.TemporaryDirectory() as temp_dir:
                 # Convert first page of PDF to image
                 # dpi=200 is a good balance between quality and file size
-                images = convert_from_path(pdf_path, dpi=200, first_page=1, last_page=1, output_folder=temp_dir)
+                convert_kwargs = {
+                    'pdf_path': pdf_path,
+                    'dpi': 200,
+                    'first_page': 1,
+                    'last_page': 1,
+                    'output_folder': temp_dir
+                }
+                
+                # Add poppler_path if available
+                if hasattr(self, 'poppler_path') and self.poppler_path:
+                    convert_kwargs['poppler_path'] = self.poppler_path
+                    
+                images = convert_from_path(**convert_kwargs)
                 
                 if not images:
                     logger.error(f"Failed to convert PDF to image: {pdf_path.name}")
@@ -389,17 +422,20 @@ class ScanAgent:
         # Sort files by creation time to process oldest first
         files.sort(key=lambda f: f.stat().st_ctime)
         
-        # Group files that might be pages of the same document
+        # Group files that might be pages of the same document (PDFs are never grouped)
         file_groups = self._group_related_files(files)
         
         # Process each group of related files
         for group_id, group_files in file_groups.items():
-            if len(group_files) > 1:
-                # Multi-page document
-                logger.info(f"Processing multi-page document with {len(group_files)} pages")
+            # Check if this is a PDF group (all PDF groups have only one file)
+            is_pdf = group_files[0].suffix.lower() == '.pdf'
+            
+            if len(group_files) > 1 and not is_pdf:
+                # Multi-page document (only for image files)
+                logger.info(f"Processing multi-page image document with {len(group_files)} pages")
                 self._process_multipage_document(group_files)
             else:
-                # Single page document
+                # Single file (could be PDF or single image)
                 self.process_scan(group_files[0])
         
         logger.info("One-time processing complete")
@@ -407,9 +443,11 @@ class ScanAgent:
     def _group_related_files(self, files: List[Path]) -> Dict[str, List[Path]]:
         """Group files that might be pages of the same document.
         
-        Files are considered related if:
+        Image files (JPG/JPEG/PNG) are considered related if:
         1. They were created within a short time of each other (default 60 seconds)
-        2. They have the same or similar date in the filename
+        2. They have the same file extension (all JPGs, all PNGs, etc.)
+        
+        PDFs are always treated as standalone documents (never grouped together).
         
         Returns:
             A dictionary mapping group IDs to lists of files in each group.
@@ -417,26 +455,49 @@ class ScanAgent:
         if not files:
             return {}
         
-        # Time window for grouping files (seconds)
-        time_window = 60
+        # Separate PDFs and image files
+        pdfs = []
+        image_files = []
         
-        # Group files by creation time proximity
-        groups: Dict[str, List[Path]] = {}
-        current_group_id = datetime.fromtimestamp(files[0].stat().st_ctime).strftime('%Y%m%d_%H%M%S')
-        current_group_time = files[0].stat().st_ctime
-        groups[current_group_id] = [files[0]]
-        
-        for file in files[1:]:
-            file_ctime = file.stat().st_ctime
-            
-            # If this file was created within the time window of the current group
-            if file_ctime - current_group_time <= time_window:
-                groups[current_group_id].append(file)
+        for file in files:
+            if file.suffix.lower() == '.pdf':
+                pdfs.append(file)
             else:
-                # Start a new group
-                current_group_id = datetime.fromtimestamp(file_ctime).strftime('%Y%m%d_%H%M%S')
-                current_group_time = file_ctime
-                groups[current_group_id] = [file]
+                image_files.append(file)
+        
+        # Create a separate group for each PDF
+        groups: Dict[str, List[Path]] = {}
+        
+        for pdf in pdfs:
+            pdf_id = f"pdf_{datetime.fromtimestamp(pdf.stat().st_ctime).strftime('%Y%m%d_%H%M%S')}"
+            groups[pdf_id] = [pdf]
+        
+        # Group image files by creation time proximity
+        if image_files:
+            # Sort image files by creation time first
+            image_files.sort(key=lambda f: f.stat().st_ctime)
+            
+            # Time window for grouping files (seconds)
+            time_window = 60
+            
+            current_group_id = f"img_{datetime.fromtimestamp(image_files[0].stat().st_ctime).strftime('%Y%m%d_%H%M%S')}"
+            current_group_time = image_files[0].stat().st_ctime
+            current_group_ext = image_files[0].suffix.lower()
+            groups[current_group_id] = [image_files[0]]
+            
+            for file in image_files[1:]:
+                file_ctime = file.stat().st_ctime
+                file_ext = file.suffix.lower()
+                
+                # Only group together files of the same type and created within the time window
+                if (file_ctime - current_group_time <= time_window) and (file_ext == current_group_ext):
+                    groups[current_group_id].append(file)
+                else:
+                    # Start a new group
+                    current_group_id = f"img_{datetime.fromtimestamp(file_ctime).strftime('%Y%m%d_%H%M%S')}"
+                    current_group_time = file_ctime
+                    current_group_ext = file_ext
+                    groups[current_group_id] = [file]
         
         # Sort files within each group by creation time
         for group_id in groups:
